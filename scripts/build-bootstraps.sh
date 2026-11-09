@@ -318,9 +318,11 @@ create_bootstrap_archive() {
 		zip -r9 "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" ./*
 	)
 
-	mv -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" "$TERMUX_PACKAGES_DIRECTORY/"
+	# Saved with the built debs: the builder can always write there, but on CI it
+	# can't write to the top of the checkout.
+	mv -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" "$TERMUX_BUILT_DEBS_DIRECTORY/" || return 1
 
-	echo "[*] Finished successfully (${1})."
+	echo "[*] Finished successfully (${1}): $TERMUX_BUILT_DEBS_DIRECTORY/bootstrap-${1}.zip"
 
 }
 
