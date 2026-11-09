@@ -25,8 +25,6 @@ jobs:
         run: |
           ./scripts/run-docker.sh true
           ./scripts/free-space.sh
-          # The builder in the container is a different user, and it saves the finished zip here.
-          chmod a+rwx .
       - name: Build bootstrap
         run: |
           set -o pipefail
@@ -35,6 +33,7 @@ jobs:
             args+=(--add "${{ github.event.inputs.add }}")
           fi
           ./scripts/run-docker.sh ./scripts/build-bootstraps.sh "${args[@]}" 2>&1 | tee build.log
+          cp output/bootstrap-*.zip .
           ls -la bootstrap-*.zip
       - name: Keep the bootstrap
         uses: actions/upload-artifact@v4
