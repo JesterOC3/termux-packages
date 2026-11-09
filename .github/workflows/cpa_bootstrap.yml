@@ -25,6 +25,8 @@ jobs:
         run: |
           ./scripts/run-docker.sh true
           ./scripts/free-space.sh
+          # The builder in the container is a different user, and it saves the finished zip here.
+          chmod a+rwx .
       - name: Build bootstrap
         run: |
           set -o pipefail
