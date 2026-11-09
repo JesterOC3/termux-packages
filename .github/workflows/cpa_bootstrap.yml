@@ -1,0 +1,54 @@
+# Builds Claude-Powered-Assist's bootstrap (the base Linux system the app unpacks on first run)
+# from source, for the package name set in scripts/properties.sh.
+name: Claude-Powered-Assist bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: Comma-separated architectures (aarch64, arm, x86_64, i686)
+        default: aarch64
+      add:
+        description: Extra packages, comma-separated (empty builds the minimal bootstrap)
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          ./scripts/run-docker.sh true
+          ./scripts/free-space.sh
+      - name: Build bootstrap
+        run: |
+          set -o pipefail
+          args=(--architectures "${{ github.event.inputs.architectures }}")
+          if [ -n "${{ github.event.inputs.add }}" ]; then
+            args+=(--add "${{ github.event.inputs.add }}")
+          fi
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh "${args[@]}" 2>&1 | tee build.log
+          ls -la bootstrap-*.zip
+      - name: Keep the bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-${{ github.run_number }}
+          path: bootstrap-*.zip
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: build.log
+      - name: Publish a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="cpa-bootstrap-$(date +%Y.%m.%d)-r${{ github.run_number }}"
+          gh release create "$tag" bootstrap-*.zip --target "${{ github.sha }}" \
+            --title "$tag" --notes "Bootstrap for games.jesteroc.claudepoweredassist. Extra packages: ${{ github.event.inputs.add || 'none' }}"
