@@ -110,6 +110,51 @@ build_package() {
 
 }
 
+# Works out which of the built debs belong in the bootstrap: the packages asked for,
+# plus everything they need at run time (Depends and Pre-Depends, followed through).
+# Debs that were only built along the way, such as build tools or extras from a
+# dependency's source (python-tkinter, tor, fonts), are left out.
+# Prints one package name per line. Run inside the folder of built debs.
+bootstrap_needed_packages() {
+
+	local deb name control scan_dir dep
+	local -A deps_of=() provider_of=() needed=()
+	local -a queue=("$@")
+
+	scan_dir="$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-control.XXXXXXXX")"
+	for deb in *.deb; do
+		[[ "$deb" == *"-static_"* ]] && continue
+		rm -rf "${scan_dir:?}"/*
+		(cd "$scan_dir" && ar x "$OLDPWD/$deb" && tar xf control.tar.* ./control 2>/dev/null || tar xf control.tar.* control)
+		control="$scan_dir/control"
+		[ -f "$control" ] || continue
+		name="$(sed -n 's/^Package: *//p' "$control")"
+		# Every alternative of every dependency, without versions: "a (>= 1), b | c" gives "a b c".
+		deps_of[$name]="$(sed -n 's/^\(Pre-\)\{0,1\}Depends: *//p' "$control" | tr ',|' '\n\n' | sed -E 's/\(.*\)//; s/:any//; s/^ +//; s/ +$//' | grep -v '^$' | tr '\n' ' ')"
+		for dep in $(sed -n 's/^Provides: *//p' "$control" | tr ',' '\n' | sed -E 's/\(.*\)//; s/^ +//; s/ +$//'); do
+			provider_of[$dep]="$name"
+		done
+	done
+	rm -rf "$scan_dir"
+
+	while [ ${#queue[@]} -gt 0 ]; do
+		name="${queue[0]}"
+		queue=("${queue[@]:1}")
+		if [ -z "${deps_of[$name]+set}" ] && [ -n "${provider_of[$name]:-}" ]; then
+			name="${provider_of[$name]}"
+		fi
+		[ -n "${deps_of[$name]+set}" ] || continue  # Not built here, so there's nothing to add.
+		[ -n "${needed[$name]+set}" ] && continue
+		needed[$name]=1
+		for dep in ${deps_of[$name]}; do
+			queue+=("$dep")
+		done
+	done
+
+	printf '%s\n' "${!needed[@]}"
+
+}
+
 # Extract *.deb files to the bootstrap root.
 extract_debs() {
 
@@ -133,6 +178,10 @@ extract_debs() {
 		echo "\""
 	fi
 
+	local -a needed_packages=()
+	mapfile -t needed_packages < <(bootstrap_needed_packages "${PACKAGES[@]}")
+	echo "[*] The bootstrap gets ${#needed_packages[@]} packages: ${needed_packages[*]}"
+
 	for deb in *.deb; do
 
 		current_package_name="$(echo "$deb" | sed -E 's/^([^_]+).*/\1/' )"
@@ -142,6 +191,11 @@ extract_debs() {
 
 		if [[ "$current_package_arch" != "$package_arch" ]] && [[ "$current_package_arch" != "all" ]]; then
 			echo "[*] Skipping incompatible package '$deb' for target '$package_arch'..."
+			continue
+		fi
+
+		if [[ " ${needed_packages[*]} " != *" $current_package_name "* ]]; then
+			echo "[*] Leaving out '$deb': nothing in the bootstrap needs it."
 			continue
 		fi
 
