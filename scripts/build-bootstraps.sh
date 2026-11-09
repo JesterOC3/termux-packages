@@ -19,6 +19,10 @@ export TERMUX_SCRIPTDIR=$(realpath "$(dirname "$(realpath "$0")")/../")
 
 BOOTSTRAP_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-tmp.XXXXXXXX")
 
+# Bootstraps built here use apt, as generate-bootstraps.sh does by default. The
+# second stage script reads this to know which package manager to finish setting up.
+: "${TERMUX_PACKAGE_MANAGER:=apt}"
+
 # By default, bootstrap archives are compatible with Android >=7.0
 # and <10.
 BOOTSTRAP_ANDROID10_COMPATIBLE=false
@@ -67,13 +71,26 @@ build_package() {
 	local package_name="$2"
 
 	local build_output
+	local build_name="$package_name"
+	local subpackage_file
+
+	# Some bootstrap packages, such as bzip2 (from libbz2), are subpackages
+	# with no folder of their own, so their parent package is built instead.
+	# Every deb built is extracted later, so the subpackage still gets in.
+	if [ ! -d "$TERMUX_PACKAGES_DIRECTORY/packages/$package_name" ]; then
+		subpackage_file="$(find "$TERMUX_PACKAGES_DIRECTORY"/packages "$TERMUX_PACKAGES_DIRECTORY"/root-packages "$TERMUX_PACKAGES_DIRECTORY"/x11-packages 			-mindepth 2 -maxdepth 2 -name "${package_name}.subpackage.sh" -print -quit 2>/dev/null)"
+		if [ -n "$subpackage_file" ]; then
+			build_name="$(basename "$(dirname "$subpackage_file")")"
+			echo "[*] '$package_name' is a subpackage of '$build_name', so '$build_name' is built."
+		fi
+	fi
 
 	# Build package from source
 	# stderr will be redirected to stdout and both will be captured into variable and printed on screen
 	cd "$TERMUX_PACKAGES_DIRECTORY"
 	echo $'\n\n\n'"[*] Building '$package_name'..."
 	exec 99>&1
-	build_output="$("$TERMUX_PACKAGES_DIRECTORY"/build-package.sh "${BUILD_PACKAGE_OPTIONS[@]}" -a "$TERMUX_ARCH" "$package_name" 2>&1 | tee >(cat - >&99); exit ${PIPESTATUS[0]})";
+	build_output="$("$TERMUX_PACKAGES_DIRECTORY"/build-package.sh "${BUILD_PACKAGE_OPTIONS[@]}" -a "$TERMUX_ARCH" "$build_name" 2>&1 | tee >(cat - >&99); exit ${PIPESTATUS[0]})";
 	return_value=$?
 	echo "[*] Building '$package_name' exited with exit code $return_value"
 	exec 99>&-
@@ -219,6 +236,7 @@ add_termux_bootstrap_second_stage_files() {
 	chmod 700 "${BOOTSTRAP_ROOTFS}/${TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_DIR}/$TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_ENTRY_POINT_SUBFILE"
 
 	# TODO: Remove it when Termux app supports `pacman` bootstraps installation.
+	mkdir -p "${BOOTSTRAP_ROOTFS}/${TERMUX__PREFIX__PROFILE_D_DIR}"
 	sed -e "s|@TERMUX_PREFIX@|${TERMUX_PREFIX}|g" \
 		-e "s|@TERMUX__PREFIX__PROFILE_D_DIR@|${TERMUX__PREFIX__PROFILE_D_DIR}|g" \
 		-e "s|@TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_DIR@|${TERMUX_BOOTSTRAP__BOOTSTRAP_SECOND_STAGE_DIR}|g" \
