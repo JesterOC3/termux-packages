@@ -11,7 +11,7 @@ on:
     inputs:
       groups:
         description: Groups to build (comma-separated). Leave out ones whose packages are reused.
-        default: base,python,node,java
+        default: base,python,node,npm,java
       reuse_run:
         description: Run ID whose built packages (debs-*) to reuse for the groups not built now
         default: ""
@@ -41,7 +41,9 @@ jobs:
           - group: python
             packages: python python-pip python-cryptography python-rpds-py python-pillow git
           - group: node
-            packages: nodejs-lts npm
+            packages: nodejs-lts
+          - group: npm
+            packages: npm
           - group: java
             packages: openjdk-17 gradle aapt
     steps:
