@@ -56,7 +56,18 @@ jobs:
         if: ${{ contains(format(',{0},', inputs.groups), format(',{0},', matrix.group)) }}
         run: |
           set -o pipefail
-          ./scripts/run-docker.sh ./build-package.sh -C -a aarch64 ${{ matrix.packages }} 2>&1 | tee build-${{ matrix.group }}.log
+          # Downloads sometimes drop (curl exit 56 from Ubuntu's servers), so a failed build is
+          # tried again. Packages that already finished are skipped, so only the failed one redoes.
+          ok=0
+          for attempt in 1 2 3; do
+            if ./scripts/run-docker.sh ./build-package.sh -C -a aarch64 ${{ matrix.packages }} 2>&1 | tee -a build-${{ matrix.group }}.log; then
+              ok=1
+              break
+            fi
+            echo "::warning::Build attempt $attempt failed; trying again." | tee -a build-${{ matrix.group }}.log
+            sleep 60
+          done
+          [ "$ok" = 1 ]
           ls output/*.deb | wc -l
           # Packed in one file: some deb names have an epoch with a colon, which artifacts don't allow.
           tar -cf debs-${{ matrix.group }}.tar -C output $(cd output && ls *.deb)
