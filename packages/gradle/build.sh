@@ -6,7 +6,9 @@ TERMUX_PKG_VERSION="1:9.9.0"
 TERMUX_PKG_SRCURL=https://services.gradle.org/distributions/gradle-${TERMUX_PKG_VERSION:2}-bin.zip
 TERMUX_PKG_SHA256=0b00b0ffe07c4d4789c12d4935a44a7057d55774b7540bd4a3f76f336deb177a
 TERMUX_PKG_AUTO_UPDATE=true
-TERMUX_PKG_DEPENDS="openjdk-21 | openjdk-25 | openjdk-17"
+# openjdk-17 first: building from source takes the first choice, and openjdk-21 would
+# pull in pulseaudio, whose dependencies loop. The app uses Java 17.
+TERMUX_PKG_DEPENDS="openjdk-17 | openjdk-21 | openjdk-25"
 TERMUX_PKG_BUILD_IN_SRC=true
 TERMUX_PKG_PLATFORM_INDEPENDENT=true
 
