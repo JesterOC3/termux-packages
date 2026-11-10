@@ -13,7 +13,7 @@ on:
         description: Groups to build (comma-separated). Leave out ones whose packages are reused.
         default: base,python,node,npm,java
       reuse_run:
-        description: Run ID whose built packages (debs-*) to reuse for the groups not built now
+        description: Run IDs (comma-separated) whose built packages (debs-*) to reuse; later ones win
         default: ""
 
 permissions:
@@ -93,16 +93,20 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Collect packages from the earlier run
+      - name: Collect packages from earlier runs
         if: ${{ inputs.reuse_run != '' }}
-        uses: actions/download-artifact@v4
-        with:
-          pattern: debs-*
-          merge-multiple: true
-          path: debs
-          run-id: ${{ inputs.reuse_run }}
-          github-token: ${{ github.token }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_RUNS: ${{ inputs.reuse_run }}
+        run: |
+          mkdir -p debs
+          for run in ${REUSE_RUNS//,/ }; do
+            gh run download "$run" -R "$GITHUB_REPOSITORY" -p 'debs-*' -D "reused-$run"
+            find "reused-$run" -name '*.tar' -exec cp {} debs/ \;
+          done
+          ls -la debs
       - name: Collect the packages built now
+        if: ${{ inputs.groups != '' }}
         uses: actions/download-artifact@v4
         with:
           pattern: debs-*
