@@ -50,6 +50,9 @@ declare -a ADDITIONAL_PACKAGES=()
 # A list of already extracted packages
 declare -a EXTRACTED_PACKAGES=()
 
+# Set by --skip-build: pack the debs already in output/ (built by separate CI jobs) instead of building.
+SKIP_BUILD=0
+
 # A list of options to pass to build-package.sh
 declare -a BUILD_PACKAGE_OPTIONS=()
 
@@ -301,6 +304,23 @@ add_termux_bootstrap_second_stage_files() {
 
 }
 
+disable_termux_repositories() {
+
+	local sources="${BOOTSTRAP_ROOTFS}/${TERMUX_PREFIX}/etc/apt/sources.list"
+	[ -f "$sources" ] || return 0
+	echo $'
+
+
+'"[*] Turning off Termux's package repositories (they're built for com.termux)..."
+	{
+		echo "# Termux's repositories are turned off: their packages are built for com.termux"
+		echo "# and don't run in ${TERMUX_APP__PACKAGE_NAME}. Everything this app needs is in its bootstrap."
+		sed -E 's/^([[:space:]]*deb[[:space:]])/# \1/' "$sources"
+	} > "${sources}.new"
+	mv -f "${sources}.new" "$sources"
+
+}
+
 # Final stage: generate bootstrap archive and place it to current
 # working directory.
 # Information about symlinks is stored in file SYMLINKS.txt.
@@ -444,6 +464,9 @@ main() {
 					return 1
 				fi
 				;;
+			--skip-build)
+				SKIP_BUILD=1
+				;;
 			-f)
 				BUILD_PACKAGE_OPTIONS+=("-f")
 				FORCE_BUILD_PACKAGES=1
@@ -547,17 +570,25 @@ main() {
 		unset add_pkg
 
 		# Build packages.
-		for package_name in "${PACKAGES[@]}"; do
-			set +e
-			build_package "$TERMUX_ARCH" "$package_name" || return $?
-			set -e
-		done
+		if [[ $SKIP_BUILD == "1" ]]; then
+			echo "[*] Not building: packing the debs already in '$TERMUX_BUILT_DEBS_DIRECTORY'."
+		else
+			for package_name in "${PACKAGES[@]}"; do
+				set +e
+				build_package "$TERMUX_ARCH" "$package_name" || return $?
+				set -e
+			done
+		fi
 
 		# Extract all debs.
 		extract_debs "$TERMUX_ARCH" || return $?
 
 		# Add termux bootstrap second stage files
-		add_termux_bootstrap_second_stage_files "$package_arch"
+		add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"  # Was "$package_arch", which is never set here.
+
+		# Packages from Termux's own repositories are built for com.termux and won't
+		# run under this app's folder, so apt mustn't install from them.
+		disable_termux_repositories
 
 		# Create bootstrap archive.
 		create_bootstrap_archive "$TERMUX_ARCH" || return $?
