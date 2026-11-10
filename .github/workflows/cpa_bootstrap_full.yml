@@ -8,9 +8,17 @@ name: Claude-Powered-Assist full bootstrap
 
 on:
   workflow_dispatch:
+    inputs:
+      groups:
+        description: Groups to build (comma-separated). Leave out ones whose packages are reused.
+        default: base,python,node,java
+      reuse_run:
+        description: Run ID whose built packages (debs-*) to reuse for the groups not built now
+        default: ""
 
 permissions:
   contents: write
+  actions: read  # To reuse packages from an earlier run.
 
 env:
   # What the bootstrap holds on top of the base system (deb names, including subpackages).
@@ -35,16 +43,17 @@ jobs:
           - group: node
             packages: nodejs-lts
           - group: java
-            # libsndfile first: pulseaudio (pulled in by openjdk-17's sound support) needs it,
-            # but the build order skipped it.
-            packages: libsndfile openjdk-17 gradle aapt
+            packages: openjdk-17 gradle aapt
     steps:
       - uses: actions/checkout@v4
+        if: ${{ contains(format(',{0},', inputs.groups), format(',{0},', matrix.group)) }}
       - name: Free disk space
+        if: ${{ contains(format(',{0},', inputs.groups), format(',{0},', matrix.group)) }}
         run: |
           ./scripts/run-docker.sh true
           ./scripts/free-space.sh
       - name: Build
+        if: ${{ contains(format(',{0},', inputs.groups), format(',{0},', matrix.group)) }}
         run: |
           set -o pipefail
           ./scripts/run-docker.sh ./build-package.sh -C -a aarch64 ${{ matrix.packages }} 2>&1 | tee build-${{ matrix.group }}.log
@@ -52,13 +61,14 @@ jobs:
           # Packed in one file: some deb names have an epoch with a colon, which artifacts don't allow.
           tar -cf debs-${{ matrix.group }}.tar -C output $(cd output && ls *.deb)
       - name: Keep the packages
+        if: ${{ contains(format(',{0},', inputs.groups), format(',{0},', matrix.group)) }}
         uses: actions/upload-artifact@v4
         with:
           name: debs-${{ matrix.group }}
           path: debs-${{ matrix.group }}.tar
           retention-days: 14
       - name: Keep the log
-        if: always()
+        if: ${{ always() && contains(format(',{0},', inputs.groups), format(',{0},', matrix.group)) }}
         uses: actions/upload-artifact@v4
         with:
           name: log-${{ matrix.group }}
@@ -70,7 +80,16 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Collect the packages
+      - name: Collect packages from the earlier run
+        if: ${{ inputs.reuse_run != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: debs-*
+          merge-multiple: true
+          path: debs
+          run-id: ${{ inputs.reuse_run }}
+          github-token: ${{ github.token }}
+      - name: Collect the packages built now
         uses: actions/download-artifact@v4
         with:
           pattern: debs-*
