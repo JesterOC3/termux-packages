@@ -35,7 +35,9 @@ jobs:
           - group: node
             packages: nodejs-lts
           - group: java
-            packages: openjdk-17 gradle aapt
+            # libsndfile first: pulseaudio (pulled in by openjdk-17's sound support) needs it,
+            # but the build order skipped it.
+            packages: libsndfile openjdk-17 gradle aapt
     steps:
       - uses: actions/checkout@v4
       - name: Free disk space
@@ -47,11 +49,13 @@ jobs:
           set -o pipefail
           ./scripts/run-docker.sh ./build-package.sh -C -a aarch64 ${{ matrix.packages }} 2>&1 | tee build-${{ matrix.group }}.log
           ls output/*.deb | wc -l
+          # Packed in one file: some deb names have an epoch with a colon, which artifacts don't allow.
+          tar -cf debs-${{ matrix.group }}.tar -C output $(cd output && ls *.deb)
       - name: Keep the packages
         uses: actions/upload-artifact@v4
         with:
           name: debs-${{ matrix.group }}
-          path: output/*.deb
+          path: debs-${{ matrix.group }}.tar
           retention-days: 14
       - name: Keep the log
         if: always()
@@ -75,6 +79,7 @@ jobs:
       - name: Pack the bootstrap
         run: |
           set -o pipefail
+          for archive in debs/*.tar; do tar -xf "$archive" -C debs && rm "$archive"; done
           ls debs/*.deb | wc -l
           # The container writes output/ itself, so its builder user can save the zip there.
           ./scripts/run-docker.sh bash -c 'mkdir -p output && cp debs/*.deb output/'
