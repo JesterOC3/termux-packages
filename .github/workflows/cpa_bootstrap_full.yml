@@ -1,0 +1,102 @@
+# Builds Claude-Powered-Assist's full bootstrap: the base system plus Python, Node.js,
+# git, Java, Gradle and aapt2, for the package name set in scripts/properties.sh.
+#
+# Each group builds in its own job, so each gets GitHub's full 6 hours, and a failed
+# group can be re-run alone with "Re-run failed jobs". The last job packs every built
+# deb that the bootstrap needs into one zip and publishes it as a release.
+name: Claude-Powered-Assist full bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # What the bootstrap holds on top of the base system (deb names, including subpackages).
+  EXTRA_PACKAGES: python,python-pip,python-cryptography,python-rpds-py,python-pillow,git,nodejs-lts,openjdk-17,gradle,aapt2
+
+jobs:
+  build:
+    name: Build ${{ matrix.group }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: base
+            packages: >-
+              apt bash libbz2 command-not-found coreutils dash diffutils findutils gawk grep gzip less
+              procps psmisc sed tar termux-core termux-exec termux-keyring termux-tools util-linux
+              ed debianutils dos2unix inetutils lsof nano net-tools patch unzip
+          - group: python
+            packages: python python-pip python-cryptography python-rpds-py python-pillow git
+          - group: node
+            packages: nodejs-lts
+          - group: java
+            packages: openjdk-17 gradle aapt
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          ./scripts/run-docker.sh true
+          ./scripts/free-space.sh
+      - name: Build
+        run: |
+          set -o pipefail
+          ./scripts/run-docker.sh ./build-package.sh -C -a aarch64 ${{ matrix.packages }} 2>&1 | tee build-${{ matrix.group }}.log
+          ls output/*.deb | wc -l
+      - name: Keep the packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: debs-${{ matrix.group }}
+          path: output/*.deb
+          retention-days: 14
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-${{ matrix.group }}
+          path: build-${{ matrix.group }}.log
+
+  bootstrap:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect the packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: debs-*
+          merge-multiple: true
+          path: debs
+      - name: Pack the bootstrap
+        run: |
+          set -o pipefail
+          ls debs/*.deb | wc -l
+          # The container writes output/ itself, so its builder user can save the zip there.
+          ./scripts/run-docker.sh bash -c 'mkdir -p output && cp debs/*.deb output/'
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --skip-build --architectures aarch64 \
+            --add "$EXTRA_PACKAGES" 2>&1 | tee bootstrap.log
+          cp output/bootstrap-*.zip .
+          ls -la bootstrap-*.zip
+      - name: Keep the bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-full-${{ github.run_number }}
+          path: bootstrap-*.zip
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-bootstrap
+          path: bootstrap.log
+      - name: Publish a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="cpa-bootstrap-full-$(date +%Y.%m.%d)-r${{ github.run_number }}"
+          gh release create "$tag" bootstrap-*.zip --target "${{ github.sha }}" --title "$tag" \
+            --notes "Full bootstrap for games.jesteroc.claudepoweredassist: the base system plus ${EXTRA_PACKAGES//,/, }. Termux's own repositories are turned off in it."
