@@ -8,7 +8,10 @@ TERMUX_PKG_SRCURL=https://github.com/openjdk/jdk17u/archive/refs/tags/jdk-${TERM
 TERMUX_PKG_SHA256=f2d18152bbd924a329e76000065904dd6bcca3deb716e91834864a1f00d9ed99
 TERMUX_PKG_AUTO_UPDATE=true
 TERMUX_PKG_UPDATE_VERSION_REGEXP='17\.\d+\.\d+(?=-ga)'
-TERMUX_PKG_DEPENDS="libandroid-shmem, libandroid-spawn, libiconv, libjpeg-turbo, zlib, littlecms, alsa-plugins"
+# alsa-lib instead of alsa-plugins: the plugins pull in pulseaudio, whose dependencies loop
+# back on themselves (libsndfile -> libmpg123 -> pulseaudio -> libsndfile) when everything
+# is built from source. Java's sound only needs alsa-lib itself.
+TERMUX_PKG_DEPENDS="libandroid-shmem, libandroid-spawn, libiconv, libjpeg-turbo, zlib, littlecms, alsa-lib"
 TERMUX_PKG_BUILD_DEPENDS="cups, fontconfig, libxrandr, libxt, xorgproto, alsa-lib"
 # openjdk-17-x is recommended because X11 separation is still very experimental.
 TERMUX_PKG_RECOMMENDS="ca-certificates-java, openjdk-17-x, resolv-conf"
