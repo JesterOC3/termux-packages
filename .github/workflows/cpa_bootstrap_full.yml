@@ -22,7 +22,7 @@ permissions:
 
 env:
   # What the bootstrap holds on top of the base system (deb names, including subpackages).
-  EXTRA_PACKAGES: python,python-pip,python-cryptography,python-rpds-py,python-pillow,git,nodejs-lts,openjdk-17,gradle,aapt2
+  EXTRA_PACKAGES: python,python-pip,python-cryptography,python-rpds-py,python-pillow,git,nodejs-lts,npm,openjdk-17,gradle,aapt2
 
 jobs:
   build:
@@ -41,7 +41,7 @@ jobs:
           - group: python
             packages: python python-pip python-cryptography python-rpds-py python-pillow git
           - group: node
-            packages: nodejs-lts
+            packages: nodejs-lts npm
           - group: java
             packages: openjdk-17 gradle aapt
     steps:
